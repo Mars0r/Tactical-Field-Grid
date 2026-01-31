@@ -92,6 +92,32 @@ Durante la fase de diseño, se encontraron los siguientes problemas técnicos y 
 **La Solución:** Mantener la **Arquitectura Híbrida**.
 
 * Se rechaza HaLow por falta de madurez en drivers Linux y por seguridad operativa: Si se satura o interfiere la frecuencia única de HaLow, se pierde *todo*. Con el sistema híbrido (2.4G + 868M), se garantiza la supervivencia del enlace de control (LoRa) ante la pérdida del vídeo.
+* 
+
+### 🔴 Problema 5. Estrategia de Autoconfiguración "Zero-Touch" 🤖
+Para garantizar la operatividad inmediata en campo sin intervención técnica (sin teclados ni pantallas), se ha diseñado un sistema de auto-descubrimiento y configuración automática que elimina la necesidad de servidores DHCP centrales.
+
+**A. Direccionamiento IP Algorítmico (Persistencia de Identidad)**
+En lugar de depender de un servidor DHCP (punto único de fallo), cada nodo calcula su propia dirección IPv4 basándose en su dirección física (MAC Address). Esto garantiza que un soldado siempre tenga la misma IP en cualquier misión, facilitando la identificación.
+
+Lógica: Conversión de los dos últimos octetos de la MAC de Hexadecimal a Decimal.
+
+Espacio de direcciones: Subred privada 10.0.0.0/16.
+
+Fórmula:
+
+Dado MAC: XX:XX:XX:XX:YY:ZZ
+
+IP Generada: 10.0.DEC(YY).DEC(ZZ)
+
+Ejemplo: MAC ...:25:1A → IP 10.0.37.26.
+
+**B. Gestión de Claves por Hardware (Mission Key)**
+Para cambiar de red o rotar claves de cifrado sin reconfigurar el sistema operativo, se implementa un mecanismo de "Llave de Misión".
+
+Funcionamiento: Al inicio, el sistema busca un archivo de configuración (wpa_supplicant.conf) en medios extraíbles (USB). Si lo encuentra, actualiza la configuración WiFi automáticamente.
+
+Ventaja Operativa: Permite reasignar un dron o soldado a un pelotón diferente simplemente cambiando la tarjeta SD o conectando un USB de configuración antes del encendido.
 
 ---
 
