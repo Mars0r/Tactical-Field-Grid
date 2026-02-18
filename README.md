@@ -1,16 +1,25 @@
 # 📡 Proyecto TFG: Red Táctica Híbrida de Malla (Hybrid Tactical Mesh Network)
 
-**Estado del Proyecto:** Fase de Diseño Arquitectónico y Selección de Hardware Completada.
-**Objetivo:** Desarrollar un sistema de comunicaciones táctico para despliegue rápido (Base ↔ Soldado/Dron) que garantice transmisión de vídeo y telemetría crítica mediante redundancia espectral.
+
+**Estado del Proyecto:** Fase de Desarrollo de Software (Prototipado de Protocolos).
+**Objetivo:** Desarrollar un "Nodo Táctico Personal" para entornos sin infraestructura (MANET). El sistema fusiona vídeo de alta velocidad (WiFi) y telemetría de largo alcance (LoRa) en una arquitectura horizontal donde cada soldado es un nodo repetidor independiente.
 
 ---
 
 ## 1. Concepto y Arquitectura 🧠
 
-El sistema se basa en una arquitectura de **"Doble Plano"** para garantizar la resiliencia en entornos hostiles o con alta interferencia:
+El sistema abandona el modelo jerárquico tradicional (Base ↔ Soldado) por una arquitectura **Peer-to-Peer (P2P)**. Cada operador lleva un "Nodo Táctico" autónomo que gestiona sus propias comunicaciones.
 
-1. **Plano de Banda Ancha (Vídeo):** Opera sobre **WiFi (2.4 GHz)**. Su función es transmitir vídeo en tiempo real y datos pesados. Es sacrificable; si se corta, la misión continúa.
-2. **Plano de Control Crítico (Telemetría):** Opera sobre **LoRa (868 MHz)**. Su función es mantener el mando y control (C2), coordenadas GPS y órdenes de texto. Es robusto y de largo alcance.
+**Filosofía de "Doble Plano":**
+
+1.  **Plano de Banda Ancha (Vídeo - Corto Alcance):**
+    * **Tecnología:** WiFi 2.4 GHz (802.11s + B.A.T.M.A.N. adv).
+    * **Función:** Transmisión de vídeo en tiempo real y descarga de mapas.
+    * **Comportamiento:** Oportunista. Si los nodos están cerca, se enlazan para pasar vídeo.
+2.  **Plano de Supervivencia (C2 - Largo Alcance):**
+    * **Tecnología:** LoRa 868 MHz (Protocolo Binario Propietario).
+    * **Función:** Posicionamiento (PLI), Chat Táctico y Marcadores de Peligro.
+    * **Comportamiento:** Persistente. Garantiza que los puntos en el mapa ATAK se muevan incluso si el soldado está a kilómetros de distancia y sin línea de vista (BLOS).
 
 **Topología:**
 
@@ -37,6 +46,8 @@ La selección de hardware prioriza componentes COTS (*Commercial Off-The-Shelf*)
 
 ## 3. Stack de Software y Lógica 💻
 
+El núcleo del proyecto es un **Middleware en Python** (`tactical_node.py`) que actúa como traductor entre el mundo físico (Radio) y el usuario (ATAK).
+
 ### A. Capa de Red (Vídeo - WiFi)
 
 * **Estándar:** IEEE **802.11s** (Mesh Point). Sustituye al antiguo modo Ad-Hoc (IBSS) por ser más eficiente y soportar seguridad moderna.
@@ -56,6 +67,30 @@ La selección de hardware prioriza componentes COTS (*Commercial Off-The-Shelf*)
 
 
 * **Frecuencia:** **868 MHz** (Europa). Alcance de varios Km con baja tasa de datos.
+
+
+### C. Capa de Aplicación (ATAK Integration)
+El sistema utiliza **ATAK (Android Team Awareness Kit)** como interfaz única.
+* **Conexión:** El middleware inyecta datos en ATAK mediante paquetes UDP Multicast (`239.2.3.1:6969`).
+* **Transparencia:** El soldado no interactúa con la Raspberry Pi; solo usa el mapa en su tablet.
+
+### D. Capa de Transporte Híbrido (El "Cerebro")
+Un script Python multihilo gestiona el tráfico inteligentemente:
+
+1.  **Gestor de Vídeo (GStreamer):**
+    * Captura vídeo por hardware (H.264) y lo envía vía RTP sobre la red B.A.T.M.A.N. (WiFi).
+2.  **Gestor de Datos (LoRa Resource Guard):**
+    * Implementa un patrón **Productor-Consumidor** con Colas (`Queue`) para gestionar el acceso exclusivo al chip LoRa (Half-Duplex).
+    * Evita colisiones entre mensajes salientes (GPS) y entrantes (Chat).
+
+### E. Protocolo de Reducción de Datos (Binary Packing)
+Para viabilizar el uso de LoRa (ancho de banda < 1kbps), se ha diseñado un protocolo binario que sustituye al XML estándar de CoT.
+
+* **Problema:** Un mensaje XML de posición ocupa ~600 bytes (3 segundos de aire en LoRa).
+* **Solución:** Compresión con `struct` a formato binario.
+    * **Estructura:** `[CABECERA 1B] + [ID 1B] + [LAT 4B] + [LON 4B]`.
+    * **Resultado:** **10 Bytes por mensaje**.
+    * **Eficiencia:** Permite actualizar la posición de todo un pelotón en menos de 1 segundo.
 
 ---
 
@@ -94,8 +129,9 @@ Durante la fase de diseño, se encontraron los siguientes problemas técnicos y 
 * Se rechaza HaLow por falta de madurez en drivers Linux y por seguridad operativa: Si se satura o interfiere la frecuencia única de HaLow, se pierde *todo*. Con el sistema híbrido (2.4G + 868M), se garantiza la supervivencia del enlace de control (LoRa) ante la pérdida del vídeo.
 * 
 
-### 🔴 Problema 5. Estrategia de Autoconfiguración "Zero-Touch" 🤖
-Para garantizar la operatividad inmediata en campo sin intervención técnica (sin teclados ni pantallas), se ha diseñado un sistema de auto-descubrimiento y configuración automática que elimina la necesidad de servidores DHCP centrales.
+### 🔴 Problema 5: Estrategia de Autoconfiguración "Zero-Touch" 🤖
+**El reto:** Necesidad de una configuración "Zero-Touch" para generar una red Ad-Hoc
+**La Solución:** Para garantizar la operatividad inmediata en campo sin intervención técnica (sin teclados ni pantallas), se ha diseñado un sistema de auto-descubrimiento y configuración automática que elimina la necesidad de servidores DHCP centrales.
 
 **A. Direccionamiento IP Algorítmico (Persistencia de Identidad)**
 En lugar de depender de un servidor DHCP (punto único de fallo), cada nodo calcula su propia dirección IPv4 basándose en su dirección física (MAC Address). Esto garantiza que un soldado siempre tenga la misma IP en cualquier misión, facilitando la identificación.
@@ -119,18 +155,60 @@ Funcionamiento: Al inicio, el sistema busca un archivo de configuración (wpa_su
 
 Ventaja Operativa: Permite reasignar un dron o soldado a un pelotón diferente simplemente cambiando la tarjeta SD o conectando un USB de configuración antes del encendido.
 
----
+### 🔴 Problema 6: El "Cuello de Botella" de LoRa
+**El reto:** Enviar XML crudo por LoRa satura el espectro y agota la batería.
+**La Solución:** **Deshidratación/Rehidratación de CoT**.
+El nodo emisor "deshidrata" el XML a binario (10 bytes). El nodo receptor "rehidrata" esos bytes convirtiéndolos de nuevo a XML válido para que su ATAK local lo entienda.
 
-## 5. Próximos Pasos (Roadmap) 🚀
-
-Al retomar el proyecto, el orden de ejecución será:
-
-1. **Adquisición:** Comprar las tarjetas Alfa AWUS036ACM.
-2. **Fase 1 (Enlace Físico):** Configurar `wlan0` en modo Mesh Point (802.11s) en dos máquinas Linux y lograr `ping` entre ellas.
-3. **Fase 2 (Enrutamiento):** Levantar B.A.T.M.A.N. adv sobre esa interfaz `wlan0`.
-4. **Fase 3 (Aplicación):** Transmitir stream de vídeo por la red BATMAN y probar la reconexión automática.
-5. **Fase 4 (Optimización):** Implementar el script de control de potencia (Stealth).
+### 🔴 Problema 7: Concurrencia en Hardware (Race Conditions)
+**El reto:** El hilo que lee el GPS y el hilo que escucha la radio intentan acceder al puerto serie LoRa simultáneamente.
+**La Solución:** **Thread-Safe Queue Manager**.
+Se implementa un "Hilo Controlador" dedicado (Traffic Cop) que es el único con permiso de escritura en el hardware. El resto de procesos solo depositan solicitudes en una cola segura.
 
 ---
 
-*Este documento resume el estado del arte del TFG a fecha de Enero 2026.*
+## 5. Arquitectura del Software (Diagrama de Flujo)
+
+```mermaid
+sequenceDiagram
+    participant ATAK as "Tablet (ATAK)"
+    participant APP as "Middleware (Python)"
+    participant LORA as "Gestor LoRa (Driver)"
+    participant AIR as "Aire (RF 868MHz)"
+
+    Note over ATAK, AIR: CICLO DE ENVÍO (TX)
+    ATAK->>APP: Genera Posición (GPS Interno)
+    APP->>APP: Comprime XML -> Binario (10 Bytes)
+    APP->>LORA: Pone en Cola de Salida
+    LORA->>AIR: Transmite Trama (0.2s)
+
+    Note over ATAK, AIR: CICLO DE RECEPCIÓN (RX)
+    AIR->>LORA: Recibe Trama de Compañero
+    LORA->>APP: Entrega Bytes Crudos
+    APP->>APP: Descomprime Binario -> XML CoT
+    APP->>ATAK: Inyecta Multicast (UDP)
+    ATAK->>ATAK: Dibuja Punto en Mapa
+```
+
+## 6. Próximos Pasos (Roadmap) 🚀
+Fase 1 (Actual): Simulador de Protocolo.
+
+- Crear entorno virtual en Python (tactical_node.py).
+
+- Simular tráfico GPS y validar la compresión binaria.
+
+- Probar la inyección de XML en ATAK (Android/Windows) vía WiFi local.
+
+Fase 2: Integración Hardware.
+
+- Conectar módulos LoRa reales.
+
+- Validar alcance y tiempos de latencia.
+
+Fase 3: Malla de Vídeo.
+
+- Configurar batman-adv y optimizar el bitrate de GStreamer.
+
+
+
+Actualizado 181020FEB26
