@@ -1,10 +1,11 @@
+import re
 import threading
 import time
 import struct
 import random
 import queue
 import socket
-from datetime import datetime
+import datetime
 
 # --- CONFIGURACIÓN ---
 # Pon False cuando tengas la Raspberry con LoRa real
@@ -18,15 +19,25 @@ def Simulación():
         return False
     
 SIMULACION = Simulación()
-ATAK_MCAST_GRP = '127.0.0.1' #'239.2.3.1' UDP Bradcast
+ATAK_MCAST_GRP = '239.2.3.1' # UDP Bradcast
 ATAK_MCAST_PORT = 6969
+ATAK_CHAT_GRP = '224.10.10.1'
+ATAK_CHAT_PORT = 17012
 
 def gps_a_atak(id_soldado, lat, lon):
     """Convierte datos de posición en un evento CoT y lo envía a la tablet local.    """
-    now = datetime.now()
+    # 1. Usar UTC real (imprescindible para TAK)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    
+    # 2. Sumar 10 minutos de forma segura (gestiona cambios de hora/día automáticamente)
+    stale = now + datetime.timedelta(minutes=10)
+
+    # 3. Formatear strings
     time_str = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    # El mensaje expira en 1 minuto si no recibe actualización
-    stale_str = (datetime.now()).replace(minute=(now.minute + 1) % 60).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    stale_str = stale.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+    # ... resto de tu lógica ...
+    print(f"[DEBUG] Sent at: {time_str} | Expires at: {stale_str}")
 
     # Definimos el Callsign basado en el ID
     callsign = f"ALPHA-{id_soldado:02d}"
@@ -71,12 +82,15 @@ def inyectar_chat_en_atak(id_remoto, texto):
     broadcast_udp(chat_xml) # La función que ya tienes para enviar a 127.0.0.1:6969
 
 def broadcast_udp(xml_mssg):  
-    # Enviar por UDP Multicast
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as sock:
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-        sock.sendto(xml_mssg.encode('utf-8'), (ATAK_MCAST_GRP, ATAK_MCAST_PORT))
+    # Simple UDP Unicast a localhost (WinTAK lo recibirá igual si escucha en el 6969)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.sendto(xml_mssg.encode('utf-8'), (ATAK_MCAST_GRP, ATAK_MCAST_PORT))
+        print(f"[ATAK] Inyectado en ATAK: {xml_mssg[:100]}...") # Log parcial para no saturar
+    
+    except Exception as e:
+        print(f"[ERROR-UDP] {e}")
 
-    print(f"[ATAK] Inyectado chat en ATAK: {xml_mssg[:100]}...") # Log parcial para no saturar
     #3. Pequeña pausa para no quemar la CPU
     time.sleep(0.05)
 
@@ -196,16 +210,16 @@ class TacticalNode:
         
     def start(self):
         # Arrancamos el hilo del controlador de radio (Daemon = muere si cierra el main)
-        hilo_radio = threading.Thread(target=self.radio.loop_controlador, daemon=True)
-        hilo_radio.start()
-        print("[SYSTEM] Controlador de Radio iniciado.")
+        #hilo_radio = threading.Thread(target=self.radio.loop_controlador, daemon=True)
+        #hilo_radio.start()
+        #print("[SYSTEM] Controlador de Radio iniciado.")
 
         # Arrancamos el hilo de escucha de WinTAK para recibir chats (Daemon = muere si cierra el main)
         self.hilo_wintak = threading.Thread(target=self.escuchar_wintak, daemon=True)
         self.hilo_wintak.start()
         
         print("[SYSTEM] Hilo de escucha WinTAK iniciado.")
-        
+        #self.hilo_wintak.join() # Esperamos a que termine (en realidad no debería terminar nunca)
         # Arrancamos el bucle principal de la aplicación
         self.bucle_generador_gps()
 
@@ -244,37 +258,46 @@ class TacticalNode:
 
 
     def escuchar_wintak(self):
-        UDP_IP = "127.0.0.1" 
-        UDP_PORT = 6969
+        UDP_IP = "0.0.0.0" 
+        UDP_PORT = 17012
+        MCAST_GRP = "224.10.10.1" # La dirección de chat de TAK
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Para evitar errores de puerto en uso
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        
+        # Permitir que varios programas (como WinTAK y tu script) usen el puerto
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((UDP_IP, UDP_PORT))
 
-        print(f"[CHAT-LISTENER] ESCUCHANDO EN {UDP_IP}:{UDP_PORT}...")
+        # --- LA MAGIA DEL MULTICAST PARA WINDOWS ---
+        # Le decimos a la tarjeta de red: "Por favor, déjame pasar los paquetes de la 224.10.10.1"
+        mreq = struct.pack("4sl", socket.inet_aton(MCAST_GRP), socket.INADDR_ANY)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        # -------------------------------------------
+
+        print(f"[CHAT-LISTENER] Escuchando MULTICAST en {MCAST_GRP}:{UDP_PORT}...")
         
         while True:
             try:
                 data, addr = sock.recvfrom(4096)
-                raw_xml = data.decode('utf-8', errors='ignore')
                 
-                #print(f"[CHAT-LISTENER] Recibido mensaje de {addr}: {raw_xml[:100]}...") # Log parcial para no saturar
-                # Buscamos si es un evento de chat (b-t-f) o contiene remarks
-                if 'type="b-t-f"' in raw_xml and '<remarks' in raw_xml:
-                    #print("[CHAT-LISTENER] Evento de chat detectado. Procesando...")
-                    # Extracción del texto entre <remarks ...> y </remarks>
-                    # Usamos una técnica más segura que split simple por si hay atributos
-                    parte_inicio = raw_xml.split('<remarks')[1]
-                    #print(f"[CHAT-LISTENER] Parte después de <remarks: {parte_inicio[:50]}...") # Log parcial
-                    mensaje = parte_inicio.split('>')[1].split('<')[0]
-                    #print(f"[CHAT-LISTENER] Mensaje extraído: {mensaje[:50]}...") # Log parcial
+                # errors='ignore' es vital aquí para no crashear con la cabecera binaria 'eM<HY...'
+                raw_data = data.decode('utf-8', errors='ignore')
+                
+                # Buscamos si es un mensaje de chat con <remarks>
+                if '<remarks' in raw_data and 'b-t-f' in raw_data:
+                    # Usamos regex para extraer el mensaje limpio, ignorando la basura del principio
+                    match_msg = re.search(r'<remarks.*?>(.*?)</remarks>', raw_data)
+                    match_sender = re.search(r'senderCallsign="(.*?)"', raw_data)
+                    
+                    if match_msg:
+                        mensaje = match_msg.group(1)
+                        sender = match_sender.group(1) if match_sender else "Desconocido"
+                        
+                        # Filtro anti-eco (cambia 'GUARDIAN' por tu callsign de WinTAK/Script si hace falta)
+                        if sender == "BROCHURE": 
+                            continue
 
-                    # Filtro de Eco: No reenviar si el emisor soy yo (BROCHURE en tu XML)
-                    if not 'senderCallsign="BROCHURE"' in raw_xml: # Ajusta a tu callsign real
-                        print("[CHAT-LISTENER] Mensaje ajeno detectado. Ignorando para evitar eco.")
-                        continue
-
-                    print(f"[WINTAK] Mensaje detectado: {mensaje}")
+                        print(f"\n[WINTAK/ATAK] Mensaje interceptado de {sender}: {mensaje}")
                     
                     # Empaquetamos para LoRa (0x02)
                     texto_bin = mensaje.encode('utf-8')[:50] 
