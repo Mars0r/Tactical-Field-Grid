@@ -1,3 +1,8 @@
+![Estado](https://img.shields.io/badge/Estado-En_Desarrollo-orange?style=flat-square)
+[![License: GPL v3](https://img.shields.io/badge/Licencia-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
+![Raspberry Pi](https://img.shields.io/badge/-Raspberry_Pi-C51A4A?style=flat-square&logo=Raspberry-Pi)
+![LoRa](https://img.shields.io/badge/Red-LoRaWAN-00AEEF?style=flat-square)
 # 📡 Proyecto TFG: Red Táctica Híbrida de Malla (Hybrid Tactical Mesh Network)
 
 
