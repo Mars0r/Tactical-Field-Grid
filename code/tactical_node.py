@@ -48,7 +48,7 @@ class TAKControl:
     def __init__(self):
         imprimir.system("[TAK] Controlador de TAK inicializado.")
         self.id_soldado = None
-        self.ATAK_MCAST_GRP = '10.18.90.234' #'239.2.3.1' # UDP Bradcast
+        self.ATAK_MCAST_GRP = '239.2.3.1' # UDP Bradcast
         self.ATAK_MCAST_PORT = 6969
         self.ATAK_CHAT_IP = '224.10.10.1'
         self.ATAK_CHAT_PORT = 17012
@@ -359,9 +359,16 @@ class TacticalNode:
                 contador += 1
                 if contador % 3 == 0:
                     imprimir.system("PROBANDO INYECCIÓN DE CHAT...")
-                    # Simulamos que el Soldado 5 nos envía un mensaje por LoRa
-                    self.tak.inyectar_chat_en_atak(2,"MENSAJE DE PRUEBA TFG")
-                
+                    
+                    # --- EL FIX DE HOY ---
+                    # 1. Inyectamos una posición falsa para crear a Soldier-2 en el mapa de ATAK
+                    self.tak.gps_a_atak(id_soldado=2, lat=40.417000, lon=-3.702000)
+                    
+                    # Pequeña pausa opcional (0.5s) para asegurar que ATAK procesa primero el mapa
+                    time.sleep(0.5) 
+                    
+                    # 2. Ahora le enviamos el mensaje asignado a Soldier-2
+                    self.tak.inyectar_chat_en_atak(2, "MENSAJE DE PRUEBA TFG")
                 # 4. Esperar 2 segundos antes del siguiente 'ping'
                 time.sleep(10)
                 
