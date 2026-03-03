@@ -3,7 +3,8 @@
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Raspberry Pi](https://img.shields.io/badge/-Raspberry_Pi-C51A4A?style=flat-square&logo=Raspberry-Pi)
 ![LoRa](https://img.shields.io/badge/Red-LoRaWAN-00AEEF?style=flat-square)
-# 📡 Proyecto TFG: Red Táctica Híbrida de Malla (Hybrid Tactical Mesh Network)
+# Tactical Field Grid (T.F.G)
+##📡 Proyecto TFG: Red Táctica Híbrida de Malla (Hybrid Tactical Mesh Network)
 
 
 **Estado del Proyecto:** Fase de Desarrollo de Software (Prototipado de Protocolos).
